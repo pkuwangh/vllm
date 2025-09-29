@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import vllm.envs as envs
+from loguru import logger as my_logger
 from vllm.attention import AttentionType
 from vllm.attention.backends.abstract import AttentionBackend
 from vllm.attention.selector import backend_name_to_enum, get_attn_backend
@@ -82,6 +83,8 @@ class Attention(nn.Module, AttentionLayerBase):
     2. Perform (multi-head/multi-query/grouped-query) attention.
     3. Return the output tensor.
     """
+
+    is_init_logged = False
 
     def __init__(
         self,
@@ -228,6 +231,12 @@ class Attention(nn.Module, AttentionLayerBase):
             torch.tensor([]) for _ in range(get_current_vllm_config(
             ).parallel_config.pipeline_parallel_size)
         ]
+
+        if not Attention.is_init_logged:
+            my_logger.debug(
+                f"Created attention layer: impl_cls={impl_cls.__name__}"
+            )
+            Attention.is_init_logged = True
 
         try:
             self.q_range = torch.tensor(envs.Q_SCALE_CONSTANT,

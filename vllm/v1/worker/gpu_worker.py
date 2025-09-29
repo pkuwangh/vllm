@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 import torch
 import torch.distributed
 import torch.nn as nn
+from loguru import logger as my_logger
 
 import vllm.envs as envs
 from vllm.config import VllmConfig
@@ -59,6 +60,9 @@ class Worker(WorkerBase):
                          distributed_init_method=distributed_init_method,
                          is_driver_worker=is_driver_worker)
 
+        my_logger.warning(
+            f"[pid={os.getpid()}] Initializing Worker {self.model_runner=}"
+        )
         if self.model_config.trust_remote_code:
             # note: lazy import to avoid importing torch before initializing
             from vllm.utils import init_cached_hf_modules
@@ -200,6 +204,7 @@ class Worker(WorkerBase):
         # Construct the model runner
         self.model_runner: GPUModelRunner = GPUModelRunner(
             self.vllm_config, self.device)
+        my_logger.debug(f"Constructed {self.model_runner=}")
 
         if self.rank == 0:
             # If usage stat is enabled, collect relevant info.
@@ -208,6 +213,7 @@ class Worker(WorkerBase):
     # FIXME(youkaichao & ywang96): Use TorchDispatchMode instead of memory pool
     # to hijack tensor allocation.
     def load_model(self) -> None:
+        my_logger.debug(f"Loading model on device {self.device}")
         eep_scale_up = os.environ.get("VLLM_ELASTIC_EP_SCALE_UP_LAUNCH") == "1"
         with self._maybe_get_memory_pool_context(tag="weights"):
             self.model_runner.load_model(eep_scale_up=eep_scale_up)
@@ -321,6 +327,7 @@ class Worker(WorkerBase):
         # warm up sizes that are not in cudagraph capture sizes,
         # but users still want to compile for better performance,
         # e.g. for the max-num-batched token size in chunked prefill.
+        my_logger.debug("Compiling or warming up model")
         warmup_sizes = self.vllm_config.compilation_config.compile_sizes.copy()
         if not self.model_config.enforce_eager:
             warmup_sizes = [

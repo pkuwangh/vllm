@@ -6,6 +6,7 @@ from typing import Optional
 
 import numpy as np
 import torch
+from loguru import logger as my_logger
 
 from vllm import envs
 from vllm.attention.backends.abstract import (AttentionBackend, AttentionImpl,
@@ -365,6 +366,9 @@ class FlashAttentionMetadataBuilder(
 
 class FlashAttentionImpl(AttentionImpl):
 
+    is_forward_logged = False
+    is_kv_cache_logged = False
+
     def __init__(
         self,
         num_heads: int,
@@ -494,6 +498,14 @@ class FlashAttentionImpl(AttentionImpl):
             # and value[:num_actual_tokens] because the reshape_and_cache_flash
             # op uses the slot_mapping's shape to determine the number of
             # actual tokens.
+            if not FlashAttentionImpl.is_kv_cache_logged:
+                my_logger.warning(
+                    f"Writing key and value to KV cache: "
+                    f"{key.shape=} {value.shape=} "
+                    f"{key_cache.shape=} {value_cache.shape=} "
+                    f"slot_mapping.shape={attn_metadata.slot_mapping.shape}"
+                )
+                FlashAttentionImpl.is_kv_cache_logged = True
             reshape_and_cache_flash(
                 key,
                 value,
@@ -521,6 +533,15 @@ class FlashAttentionImpl(AttentionImpl):
             scheduler_metadata = attn_metadata.scheduler_metadata
 
             descale_shape = (cu_seqlens_q.shape[0] - 1, self.num_kv_heads)
+
+            if not FlashAttentionImpl.is_forward_logged:
+                my_logger.warning(
+                    f"calling {flash_attn_varlen_func.__name__}: "
+                    f"{num_actual_tokens=} "
+                    f"query.shape={query[:num_actual_tokens].shape} "
+                    f"{cu_seqlens_q.shape=} {block_table.shape=} "
+                )
+                FlashAttentionImpl.is_forward_logged = True
 
             flash_attn_varlen_func(
                 q=query[:num_actual_tokens],

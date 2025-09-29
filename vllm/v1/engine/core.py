@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import gc
+import json
 import os
 import queue
 import signal
@@ -16,6 +17,7 @@ from typing import Any, Callable, Optional, TypeVar, Union
 
 import msgspec
 import zmq
+from loguru import logger as my_logger
 
 from vllm.config import ParallelConfig, VllmConfig
 from vllm.distributed import stateless_destroy_torch_distributed_process_group
@@ -69,6 +71,10 @@ class EngineCore:
                  log_stats: bool,
                  executor_fail_callback: Optional[Callable] = None):
 
+        my_logger.warning(
+            f"[pid={os.getpid()}] Initializing EngineCore "
+            f"with {executor_class=}"
+        )
         # plugins need to be loaded at the engine/scheduler level too
         from vllm.plugins import load_general_plugins
         load_general_plugins()
@@ -90,6 +96,7 @@ class EngineCore:
         # Setup KV Caches and update CacheConfig after profiling.
         num_gpu_blocks, num_cpu_blocks, kv_cache_config = \
             self._initialize_kv_caches(vllm_config)
+        my_logger.debug(f"{num_gpu_blocks=}, {num_cpu_blocks=}")
 
         vllm_config.cache_config.num_gpu_blocks = num_gpu_blocks
         vllm_config.cache_config.num_cpu_blocks = num_cpu_blocks
@@ -172,6 +179,9 @@ class EngineCore:
 
         # Get all kv cache needed by the model
         kv_cache_specs = self.model_executor.get_kv_cache_specs()
+        _layer = list(kv_cache_specs[0].keys())[0]
+        _config = kv_cache_specs[0][_layer]
+        my_logger.debug(f"{_layer}: {_config}")
 
         has_kv_cache = any(kv_cache_spec for kv_cache_spec in kv_cache_specs)
         if has_kv_cache:
@@ -204,6 +214,10 @@ class EngineCore:
         num_cpu_blocks = 0
 
         # Initialize kv cache and warmup the execution
+        my_logger.debug(
+            f"Initializing KV cache "
+            f"from {self.model_executor.__class__.__name__}"
+        )
         self.model_executor.initialize_from_config(kv_cache_configs)
 
         elapsed = time.time() - start
@@ -275,17 +289,22 @@ class EngineCore:
         Returns tuple of outputs and a flag indicating whether the model
         was executed.
         """
+        my_logger.info("---------------- EngineCore step ----------------")
 
         # Check for any requests remaining in the scheduler - unfinished,
         # or finished and not yet removed from the batch.
         if not self.scheduler.has_requests():
             return {}, False
         scheduler_output = self.scheduler.schedule()
+        debug_strs = [f"{x.req_id}/{x.block_ids}" for x in scheduler_output.scheduled_new_reqs]  # noqa: E501
+        my_logger.debug(f"scheduler: new_reqs/block_ids={', '.join(debug_strs)}")  # noqa: E501
         model_output = self.execute_model_with_error_logging(
             self.model_executor.execute_model,  # type: ignore
             scheduler_output)
+        my_logger.debug(f"model_output: req_ids={','.join(model_output.req_ids)} sampled_tokens={model_output.sampled_token_ids}")  # noqa: E501
         engine_core_outputs = self.scheduler.update_from_output(
             scheduler_output, model_output)  # type: ignore
+        # my_logger.debug(f"{engine_core_outputs=}")
 
         return (engine_core_outputs,
                 scheduler_output.total_num_scheduled_tokens > 0)
@@ -741,11 +760,13 @@ class EngineCoreProc(EngineCore):
 
         if waited:
             logger.debug("EngineCore loop active.")
+            my_logger.info("EngineCore activated by new work.")
 
         # Handle any more client requests.
         while not self.input_queue.empty():
             req = self.input_queue.get_nowait()
             self._handle_client_request(*req)
+            my_logger.info("EngineCore adding new request")
 
     def _process_engine_step(self) -> bool:
         """Called only when there are unfinished local requests."""

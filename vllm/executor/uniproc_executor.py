@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
+from loguru import logger as my_logger
 
 import vllm.envs as envs
 from vllm.executor.executor_base import ExecutorBase
@@ -31,6 +32,7 @@ class UniProcExecutor(ExecutorBase):
     def _init_executor(self) -> None:
         """Initialize the worker and load the model.
         """
+        my_logger.debug("Initializing UniProcExecutor")
         self.driver_worker = WorkerWrapperBase(vllm_config=self.vllm_config,
                                                rpc_rank=0)
         distributed_init_method, rank, local_rank = self._distributed_args()

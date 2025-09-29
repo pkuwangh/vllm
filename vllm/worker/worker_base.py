@@ -7,6 +7,7 @@ from typing import (Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar,
 
 import cloudpickle
 import torch.nn as nn
+from loguru import logger as my_logger
 
 from vllm.config import VllmConfig, set_current_vllm_config
 from vllm.logger import init_logger
@@ -222,6 +223,8 @@ class WorkerWrapperBase:
                               bytes)
             worker_class = cloudpickle.loads(
                 self.vllm_config.parallel_config.worker_cls)
+
+        my_logger.debug(f"init_worker {worker_class=} {hasattr(self, 'load_model')=}")  # noqa: E501
         if self.vllm_config.parallel_config.worker_extension_cls:
             worker_extension_cls = resolve_obj_by_qualname(
                 self.vllm_config.parallel_config.worker_extension_cls)
@@ -247,6 +250,7 @@ class WorkerWrapperBase:
             # To make vLLM config available during worker initialization
             self.worker = worker_class(**kwargs)
             assert self.worker is not None
+        my_logger.debug(f"init_worker done {self.worker=} {hasattr(self, 'load_model')=}")  # noqa: E501
 
     def initialize_from_config(self, kv_cache_configs: List[Any]) -> None:
         kv_cache_config = kv_cache_configs[self.rpc_rank]
@@ -254,6 +258,7 @@ class WorkerWrapperBase:
             self.worker.initialize_from_config(kv_cache_config)  # type: ignore
 
     def init_device(self):
+        my_logger.debug("init_device")
         with set_current_vllm_config(self.vllm_config):
             # To make vLLM config available during device initialization
             self.worker.init_device()  # type: ignore

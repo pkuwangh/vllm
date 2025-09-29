@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Union, cast
 
 import cloudpickle
 import torch.nn as nn
+from loguru import logger as my_logger
 from pydantic import ValidationError
 from tqdm.auto import tqdm
 from typing_extensions import TypeVar
@@ -372,6 +373,8 @@ class LLM:
         """
         model_config = self.llm_engine.model_config
         runner_type = model_config.runner_type
+        my_logger.debug(f"{model_config=}")
+        my_logger.debug(f"{runner_type=}")
         if runner_type != "generate":
             raise ValueError(
                 "LLM.generate() is only supported for generative models. "
@@ -1597,6 +1600,7 @@ class LLM:
             for output in step_outputs:
                 if output.finished:
                     outputs.append(output)
+                    my_logger.debug(f"Request {output.request_id} finished with {len(output.outputs[0].token_ids)} tokens.")  # noqa: E501
                     if use_tqdm:
                         if isinstance(output, RequestOutput):
                             # Calculate tokens only for RequestOutput

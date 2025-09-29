@@ -7,6 +7,7 @@ from copy import copy
 from typing import Any, Callable, Optional, Union
 
 import torch.nn as nn
+from loguru import logger as my_logger
 from typing_extensions import TypeVar
 
 import vllm.envs as envs
@@ -100,6 +101,7 @@ class LLMEngine:
         self.processor = Processor(vllm_config=vllm_config,
                                    tokenizer=self.tokenizer,
                                    mm_registry=mm_registry)
+        my_logger.debug(f"Using tokenizer={self.tokenizer.__class__.__name__}")
 
         # OutputProcessor (convert EngineCoreOutputs --> RequestOutput).
         self.output_processor = OutputProcessor(self.tokenizer,
@@ -117,6 +119,10 @@ class LLMEngine:
             vllm_config=vllm_config,
             executor_class=executor_class,
             log_stats=self.log_stats,
+        )
+        my_logger.debug(
+            f"Using engine_core={self.engine_core.__class__.__name__} "
+            f"executor_class={executor_class.__name__}"
         )
 
         self.logger_manager: Optional[StatLoggerManager] = None
@@ -233,6 +239,8 @@ class LLMEngine:
 
         n = params.n if isinstance(params, SamplingParams) else 1
 
+        my_logger.debug(f"Adding req_id={request.request_id} tokens={request.prompt_token_ids} with {prompt_str=} {n=}")  # noqa: E501
+
         if n == 1:
             # Make a new RequestState and queue.
             self.output_processor.add_request(request, prompt_str, None, 0)
@@ -255,6 +263,7 @@ class LLMEngine:
             self.engine_core.add_request(child_request)
 
     def step(self) -> Union[list[RequestOutput], list[PoolingRequestOutput]]:
+        my_logger.info("---------------- llm_engine step ----------------")
 
         if self.should_execute_dummy_batch:
             self.should_execute_dummy_batch = False
@@ -263,6 +272,7 @@ class LLMEngine:
 
         # 1) Get EngineCoreOutput from the EngineCore.
         outputs = self.engine_core.get_output()
+        my_logger.info(f"Got {len(outputs.outputs)} outputs")
 
         # 2) Process EngineCoreOutputs.
         iteration_stats = IterationStats() if self.log_stats else None
@@ -270,6 +280,7 @@ class LLMEngine:
             outputs.outputs,
             engine_core_timestamp=outputs.timestamp,
             iteration_stats=iteration_stats)
+        my_logger.info(f"Got {len(processed_outputs.request_outputs)} processed outputs")   # noqa: E501
 
         # 3) Abort any reqs that finished due to stop strings.
         self.engine_core.abort_requests(processed_outputs.reqs_to_abort)
