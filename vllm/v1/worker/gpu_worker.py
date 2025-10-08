@@ -18,7 +18,8 @@ from vllm.distributed import (ensure_model_parallel_initialized,
                               init_distributed_environment,
                               set_custom_all_reduce)
 from vllm.distributed.kv_transfer import ensure_kv_transfer_initialized
-from vllm.distributed.parallel_state import get_pp_group, get_tp_group
+from vllm.distributed.parallel_state import (get_dp_group, get_ep_group,
+                                             get_pp_group, get_tp_group)
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
 from vllm.model_executor import set_random_seed
@@ -175,6 +176,11 @@ class Worker(WorkerBase):
                                                 self.local_rank,
                                                 current_platform.dist_backend)
 
+            my_logger.debug(f"TP group: {get_tp_group().ranks}")
+            my_logger.debug(f"PP group: {get_pp_group().ranks}")
+            my_logger.debug(f"DP group: {get_dp_group().ranks}")
+            my_logger.debug(f"EP group: {get_ep_group().ranks}")
+
             # Set random seed.
             set_random_seed(self.model_config.seed)
 
@@ -204,7 +210,10 @@ class Worker(WorkerBase):
         # Construct the model runner
         self.model_runner: GPUModelRunner = GPUModelRunner(
             self.vllm_config, self.device)
-        my_logger.debug(f"Constructed {self.model_runner=}")
+        my_logger.debug(
+            f"Constructed model_runner={self.model_runner.__class__.__name__} "
+            f"on device={self.device} rank={self.rank}"
+        )
 
         if self.rank == 0:
             # If usage stat is enabled, collect relevant info.

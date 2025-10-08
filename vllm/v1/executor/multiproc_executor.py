@@ -21,6 +21,7 @@ from typing import Any, Callable, Optional, Union, cast
 
 import cloudpickle
 import torch
+from loguru import logger as my_logger
 
 import vllm.envs as envs
 from vllm.config import VllmConfig
@@ -83,6 +84,12 @@ class MultiprocExecutor(Executor):
                                              self.world_size,
                                              max_chunk_bytes=max_chunk_bytes)
         scheduler_output_handle = self.rpc_broadcast_mq.export_handle()
+
+        my_logger.warning(
+            f"[pid={os.getpid()}] Initializing MultiprocExecutor: "
+            f"{distributed_init_method=} world_size={self.world_size} "
+            f"{tensor_parallel_size=} {pp_parallel_size=} "
+        )
 
         # Create workers
         context = get_mp_context()
@@ -388,6 +395,10 @@ class WorkerProc:
         shared_worker_lock: LockType,
     ):
         self.rank = rank
+        my_logger.info(
+            f"[pid={os.getpid()}] Starting WorkerWrapperBase from WorkerProc "
+            f"{rank=} {local_rank=}"
+        )
         wrapper = WorkerWrapperBase(vllm_config=vllm_config, rpc_rank=rank)
         # TODO: move `init_worker` to executor level as a collective rpc call
         all_kwargs: list[dict] = [
